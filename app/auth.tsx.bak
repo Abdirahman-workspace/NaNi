@@ -1,0 +1,203 @@
+import { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  Alert,
+} from "react-native";
+import { router } from "expo-router";
+import { Colors, FontSize, Spacing } from "../src/constants/theme";
+import { db, isSupabaseConfigured } from "../src/lib/db";
+
+export default function AuthScreen() {
+  const [login, setLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert("Missing information", "Enter your email and password.");
+      return;
+    }
+
+    if (!isSupabaseConfigured) {
+      Alert.alert("Supabase not configured");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      if (login) {
+        const { error } = await db.auth.signInWithPassword(
+          email.trim(),
+          password
+        );
+
+        if (error) throw error;
+
+        router.replace("/(tabs)/home");
+      } else {
+        const { data, error } = await db.auth.signUp(
+          email.trim(),
+          password
+        );
+
+        if (error) throw error;
+
+        if (data.session) {
+          router.replace("/(tabs)/home");
+        } else {
+          Alert.alert(
+            "Check your email",
+            "Your account was created. Confirm your email, then log in."
+          );
+          setLogin(true);
+        }
+      }
+    } catch (error: any) {
+      Alert.alert(
+        login ? "Login failed" : "Sign up failed",
+        error?.message ?? "Something went wrong."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.logo}>NaNi</Text>
+
+        <Text style={styles.title}>
+          {login ? "Welcome back" : "Join NaNi"}
+        </Text>
+
+        <Text style={styles.subtitle}>
+          {login
+            ? "Sign in to your account"
+            : "Create your Nation of Niches account"}
+        </Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Email"
+          placeholderTextColor={Colors.textMuted}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          placeholderTextColor={Colors.textMuted}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoCapitalize="none"
+        />
+
+        <Pressable
+          style={styles.button}
+          onPress={submit}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? "Please wait..." : login ? "Log In" : "Sign Up"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.switch}
+          onPress={() => setLogin(!login)}
+        >
+          <Text style={styles.switchText}>
+            {login
+              ? "Don't have an account? Sign Up"
+              : "Already have an account? Log In"}
+          </Text>
+        </Pressable>
+
+        <Pressable onPress={() => router.back()}>
+          <Text style={styles.back}>Back</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    padding: Spacing.lg,
+  },
+  logo: {
+    fontSize: 38,
+    fontWeight: "800",
+    color: Colors.text,
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+  },
+  title: {
+    fontSize: FontSize.xxl,
+    fontWeight: "700",
+    color: Colors.text,
+    textAlign: "center",
+    marginBottom: Spacing.sm,
+  },
+  subtitle: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+  },
+  input: {
+    height: 52,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    backgroundColor: Colors.surface,
+    color: Colors.text,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  button: {
+    height: 52,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: Spacing.sm,
+  },
+  buttonText: {
+    color: Colors.background,
+    fontSize: FontSize.md,
+    fontWeight: "700",
+  },
+  switch: {
+    alignItems: "center",
+    marginTop: Spacing.xl,
+  },
+  switchText: {
+    color: Colors.primary,
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+  },
+  back: {
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginTop: Spacing.lg,
+    fontSize: FontSize.sm,
+  },
+});

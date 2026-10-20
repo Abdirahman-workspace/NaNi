@@ -1,0 +1,179 @@
+import { Tabs, useRouter, usePathname } from "expo-router";
+import { View, Text, Pressable, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { Colors, Radii, FontSize, FontWeight, Spacing } from "../../src/constants/theme";
+
+function CustomTabBar() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const isHome = pathname.includes("/home") || pathname === "/";
+  const isFollowing = pathname.includes("/following");
+  const isSearch = pathname.includes("/search");
+  const isProfile = pathname.includes("/profile");
+
+  return (
+    <View
+      style={[
+        styles.wrapper,
+        { paddingBottom: Math.max(insets.bottom, 12) + 6 },
+      ]}
+    >
+      {/* Main floating pill */}
+      <View style={styles.pill}>
+        <TabItem
+          label="Home"
+          icon="home"
+          active={isHome}
+          onPress={() => router.push("/(tabs)/home")}
+        />
+        <TabItem
+          label="Following"
+          icon="people"
+          active={isFollowing}
+          onPress={() => router.push("/(tabs)/following")}
+        />
+        <TabItem
+          label="Search"
+          icon="search"
+          active={isSearch}
+          onPress={() => router.push("/(tabs)/search")}
+        />
+        <TabItem
+          label="Profile"
+          icon="person"
+          active={isProfile}
+          onPress={() => router.push("/(tabs)/profile")}
+        />
+      </View>
+
+      {/* Separate Create button */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.createBtn,
+          pressed && { transform: [{ scale: 0.92 }] },
+        ]}
+        onPress={() => router.push("/(tabs)/create")}
+      >
+        <Ionicons name="add" size={28} color={Colors.text} />
+      </Pressable>
+    </View>
+  );
+}
+
+function TabItem({
+  label,
+  icon,
+  active,
+  onPress,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.tabItem}>
+      {active && <View style={styles.activeBg} />}
+      <View style={styles.tabContent}>
+        <Ionicons
+          name={active ? icon : (`${icon}-outline` as any)}
+          size={22}
+          color={active ? Colors.text : Colors.textMuted}
+        />
+        <Text
+          style={[
+            styles.tabLabel,
+            { color: active ? Colors.text : Colors.textMuted },
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      tabBar={() => <CustomTabBar />}
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Tabs.Screen name="home" />
+      <Tabs.Screen name="following" />
+      <Tabs.Screen name="create" options={{ href: null }} />
+      <Tabs.Screen name="search" />
+      <Tabs.Screen name="profile" />
+    </Tabs>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrapper: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    zIndex: 100,
+  },
+  pill: {
+    flexDirection: "row",
+    backgroundColor: "rgba(12, 12, 12, 0.88)",
+    borderRadius: Radii["3xl"],
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 5,
+    // soft shadow
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  tabItem: {
+    width: 72,
+    height: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  activeBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.surfaceActive,
+    borderRadius: Radii["2xl"],
+  },
+  tabContent: {
+    alignItems: "center",
+    gap: 2,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.2,
+  },
+  createBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+});
