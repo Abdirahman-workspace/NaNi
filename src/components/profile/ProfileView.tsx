@@ -1,39 +1,47 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Dimensions,
   Image,
+  Linking,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  Extrapolation,
+  FadeInDown,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { db } from "../../lib/db";
-import {
-  Colors,
-  FontSize,
-  FontWeight,
-  Radii,
-  Spacing,
-} from "../../constants/theme";
 import PostCard from "../home/PostCard";
 
-const BANNERS = [
-  "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=900",
-  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=900",
-  "https://images.unsplash.com/photo-1509316975850-ff9c5edd0cd9?w=900",
-  "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=900",
-  "https://images.unsplash.com/photo-1540959733332-eab4deceeaf7?w=900",
-];
-
-type FilterType = "all" | "text" | "image" | "video";
+const { width: W } = Dimensions.get("window");
+const BG = "#0b0b11";
+const MUT = "#85878f";
+const LINE = "rgba(255,255,255,0.12)";
+const HERO = 520;
+const AV = 76;
 
 type Props = { username?: string };
 
+function formatStat(n: number) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
 export default function ProfileView({ username }: Props) {
+  const insets = useSafeAreaInsets();
+  const y = useSharedValue(0);
+
   const [profile, setProfile] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
   const [followers, setFollowers] = useState(0);
@@ -41,49 +49,75 @@ export default function ProfileView({ username }: Props) {
   const [me, setMe] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
 
   const load = useCallback(async () => {
     try {
       const myId = await db.auth.getCurrentUserId();
       setMe(myId);
-
       const target = username
         ? await db.profiles.getByUsername(username)
         : await db.auth.getCurrentUserProfile();
-
       if (!target) {
         setProfile(null);
         return;
       }
-
       setProfile(target);
-
       const [allPosts, fl, fg] = await Promise.all([
         db.posts.list(100),
         db.follows.listFollowers(target.id),
         db.follows.listFollowing(target.id),
       ]);
-
       setPosts(allPosts.filter((p: any) => p.user_id === target.id));
       setFollowers(fl.length);
       setFollowing(fg.length);
-
       if (myId && myId !== target.id) {
         setIsFollowing(await db.follows.isFollowing(myId, target.id));
       }
     } catch (e) {
-      console.warn("Profile load failed", e);
+      console.warn(e);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [username]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      y.value = e.contentOffset.y;
+    },
+  });
+
+  const hdStyle = useAnimatedStyle(() => {
+    const on = y.value > 80;
+    return {
+      backgroundColor: on ? "rgba(11,11,17,0.92)" : "transparent",
+      borderBottomColor: on ? "#23242c" : "transparent",
+    };
+  });
+
+  const ttlStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(y.value, [60, 120], [0, 1], Extrapolation.CLAMP),
+    transform: [
+      { translateY: interpolate(y.value, [60, 120], [6, 0], Extrapolation.CLAMP) },
+    ],
+  }));
+
+  const miniStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(y.value, [70, 130], [0, 1], Extrapolation.CLAMP),
+    transform: [
+      { scale: interpolate(y.value, [70, 130], [0.5, 1], Extrapolation.CLAMP) },
+    ],
+  }));
+
+  const heroParallax = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: y.value * 0.35 },
+      { scale: 1 + Math.min(y.value, 400) / 2200 },
+    ],
+  }));
 
   const toggleFollow = async () => {
     if (!me || !profile || me === profile.id) return;
@@ -94,465 +128,378 @@ export default function ProfileView({ username }: Props) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={Colors.accent} size="large" />
+      <View style={[s.root, s.center]}>
+        <ActivityIndicator color="#fff" />
       </View>
     );
   }
 
   if (!profile) {
     return (
-      <View style={styles.center}>
-        <Ionicons name="person-outline" size={40} color={Colors.textMuted} />
-        <Text style={styles.muted}>Profile not found</Text>
+      <View style={[s.root, s.center]}>
+        <Text style={{ color: MUT }}>Profile not found</Text>
       </View>
     );
   }
 
   const isMe = me === profile.id;
-  const initials = (profile.display_name || profile.username || "U")
-    .slice(0, 2)
-    .toUpperCase();
+  const name = profile.display_name || profile.username || "User";
+  const initials = name.slice(0, 2).toUpperCase();
   const bannerUri =
     profile.banner_url ||
-    BANNERS[profile.banner_index % BANNERS.length] ||
-    BANNERS[0];
-
-  const filteredPosts =
-    activeFilter === "all"
-      ? posts
-      : posts.filter((p) => {
-          if (activeFilter === "text") return !p.captured_image;
-          if (activeFilter === "image") return !!p.captured_image;
-          return true;
-        });
+    "https://images.unsplash.com/photo-1509233725247-49e657c54213?w=1200&q=80";
 
   return (
-    <FlatList
-      style={styles.list}
-      data={filteredPosts}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => <PostCard post={item} />}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: 140 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            load();
-          }}
-          tintColor={Colors.accent}
-        />
-      }
-      ListHeaderComponent={
-        <>
-          {/* Banner */}
-          <View style={styles.bannerWrap}>
-            <Image source={{ uri: bannerUri }} style={styles.banner} />
-            <View style={styles.bannerFade} />
-          </View>
-
-          {/* Avatar + Stats row */}
-          <View style={styles.avatarStatsRow}>
-            <View style={styles.avatarWrap}>
+    <View style={s.root}>
+      <Animated.View style={[s.hd, { paddingTop: insets.top }, hdStyle]}>
+        <View style={s.bar}>
+          <Pressable
+            style={s.ib}
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.push("/(tabs)/home")
+            }
+          >
+            <Ionicons name="chevron-back" size={22} color="#fff" />
+          </Pressable>
+          <Animated.View style={[s.ttl, ttlStyle]}>
+            <Animated.View style={[s.mini, miniStyle]}>
               {profile.avatar_url ? (
-                <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+                <Image source={{ uri: profile.avatar_url }} style={s.miniImg} />
               ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarText}>{initials}</Text>
+                <View style={s.miniPh}>
+                  <Text style={s.miniT}>{initials[0]}</Text>
+                </View>
+              )}
+            </Animated.View>
+            <View>
+              <Text style={s.ttlB} numberOfLines={1}>
+                {name}
+              </Text>
+              <Text style={s.ttlS}>@{profile.username}</Text>
+            </View>
+          </Animated.View>
+          <Pressable
+            style={s.ib}
+            onPress={() => (isMe ? router.push("/settings") : null)}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      </Animated.View>
+
+      <Animated.ScrollView
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 140 + insets.bottom }}
+      >
+        {/* Photo + smooth gradient + identity all in ONE block */}
+        <View style={[s.heroBlock, { paddingTop: insets.top }]}>
+          <Animated.View style={[StyleSheet.absoluteFill, heroParallax]}>
+            <Image source={{ uri: bannerUri }} style={s.heroImg} resizeMode="cover" />
+          </Animated.View>
+
+          <LinearGradient
+            colors={[
+              "transparent",
+              "transparent",
+              "rgba(11,11,17,0.2)",
+              "rgba(11,11,17,0.5)",
+              "rgba(11,11,17,0.78)",
+              "rgba(11,11,17,0.94)",
+              BG,
+            ]}
+            locations={[0, 0.32, 0.48, 0.6, 0.72, 0.86, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          <View style={s.identityOnHero}>
+            <View style={s.avWrap}>
+              {profile.avatar_url ? (
+                <Image source={{ uri: profile.avatar_url }} style={s.av} />
+              ) : (
+                <View style={[s.av, s.avPh]}>
+                  <Text style={s.avInit}>{initials}</Text>
                 </View>
               )}
             </View>
 
-
-          </View>
-
-          {/* Name + settings */}
-          <View style={styles.infoSection}>
-            <View style={styles.nameRow}>
-              <View style={styles.nameLeft}>
-                <Text style={styles.displayName}>{profile.display_name}</Text>
-                {profile.is_creator && (
-                  <View style={styles.creatorBadge}>
-                    <Text style={styles.creatorText}>CREATOR</Text>
-                  </View>
-                )}
+            <Animated.View entering={FadeInDown.delay(80).duration(700)} style={s.nmRow}>
+              <Text style={s.nm}>{name}</Text>
+              <View style={s.badge}>
+                <Ionicons name="checkmark" size={11} color="#5b9bff" />
               </View>
-              <View style={styles.statsRow}>
-              <Stat value={posts.length} label="Posts" />
-              <Pressable onPress={() => router.push(`/followers/${profile.username}`)}>
-                <Stat value={followers} label="Followers" />
-              </Pressable>
-              <Stat value={following} label="Following" />
-            </View>
-              <Pressable
-                style={styles.settingsBtn}
-                onPress={() => {
-                  if (isMe) router.push("/settings");
-                }}
-                hitSlop={8}
-              >
-                <Ionicons name="settings-outline" size={18} color={Colors.textMuted} />
-              </Pressable>
-            </View>
+            </Animated.View>
 
-            <Text style={styles.username}>@{profile.username}</Text>
+            <Animated.Text entering={FadeInDown.delay(120).duration(700)} style={s.hn}>
+              @{profile.username}
+            </Animated.Text>
 
-            {!!profile.bio && <Text style={styles.bio}>{profile.bio}</Text>}
-
-            {!!profile.link && (
-              <View style={styles.linkRow}>
-                <Ionicons name="link-outline" size={14} color={Colors.accent} />
-                <Text style={styles.link} numberOfLines={1}>
-                  {profile.link}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Action row */}
-          <View style={styles.actionRow}>
-            {isMe ? (
-              <Pressable
-                style={styles.editBtn}
-                onPress={() => router.push("/edit-profile")}
-              >
-                <Text style={styles.editBtnText}>Edit Profile</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                style={[styles.followBtn, isFollowing && styles.followingBtn]}
-                onPress={toggleFollow}
-              >
-                {!isFollowing && <Ionicons name="add" size={16} color="#000" />}
-                <Text
-                  style={[
-                    styles.followBtnText,
-                    isFollowing && styles.followingBtnText,
-                  ]}
+            <Animated.View entering={FadeInDown.delay(160).duration(700)} style={s.actions}>
+              {isMe ? (
+                <Pressable
+                  style={({ pressed }) => [s.edit, pressed && { transform: [{ scale: 0.96 }] }]}
+                  onPress={() => router.push("/edit-profile")}
                 >
-                  {isFollowing ? "Following" : "Follow"}
-                </Text>
+                  <Ionicons name="pencil-outline" size={18} color={BG} />
+                  <Text style={s.editTxt}>Edit Profile</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [
+                    s.edit,
+                    isFollowing && s.editGhost,
+                    pressed && { transform: [{ scale: 0.96 }] },
+                  ]}
+                  onPress={toggleFollow}
+                >
+                  <Text style={[s.editTxt, isFollowing && { color: "#fff" }]}>
+                    {isFollowing ? "Following" : "Follow"}
+                  </Text>
+                </Pressable>
+              )}
+              <Pressable
+                style={({ pressed }) => [s.share, pressed && { transform: [{ scale: 0.96 }] }]}
+              >
+                <Ionicons name="share-social-outline" size={22} color="#fff" />
               </Pressable>
-            )}
+            </Animated.View>
+          </View>
+        </View>
 
-            <View style={styles.filters}>
-              <FilterPill
-                label="All"
-                active={activeFilter === "all"}
-                onPress={() => setActiveFilter("all")}
-              />
-              <FilterPill
-                icon="document-text-outline"
-                active={activeFilter === "text"}
-                onPress={() => setActiveFilter("text")}
-              />
-              <FilterPill
-                icon="image-outline"
-                active={activeFilter === "image"}
-                onPress={() => setActiveFilter("image")}
-              />
-              <FilterPill
-                icon="videocam-outline"
-                active={activeFilter === "video"}
-                onPress={() => setActiveFilter("video")}
-              />
+        <View style={s.below}>
+          <View style={s.stats}>
+            <View style={s.stat}>
+              <Text style={s.statN}>{formatStat(following)}</Text>
+              <Text style={s.statL}>Following</Text>
+            </View>
+            <Pressable
+              style={s.stat}
+              onPress={() => router.push(`/followers/${profile.username}` as any)}
+            >
+              <Text style={s.statN}>{formatStat(followers)}</Text>
+              <Text style={s.statL}>Followers</Text>
+            </Pressable>
+            <View style={s.stat}>
+              <Text style={s.statN}>{formatStat(posts.length)}</Text>
+              <Text style={s.statL}>Creations</Text>
             </View>
           </View>
-        </>
-      }
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Ionicons name="images-outline" size={32} color={Colors.textMuted} />
-          <Text style={styles.muted}>No posts yet.</Text>
-        </View>
-      }
-    />
-  );
-}
 
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+          <Text style={s.bio}>
+            {profile.bio ||
+              "Designer & creator. Sharing daily inspiration and minimalist aesthetics."}
+          </Text>
+
+          <Pressable
+            style={s.lnk}
+            onPress={() => {
+              const raw = profile.link || "nationofniches.com";
+              const url = raw.startsWith("http") ? raw : "https://" + raw;
+              Linking.openURL(url).catch(() => {});
+            }}
+          >
+            <Ionicons name="link-outline" size={16} color="#8a8c96" />
+            <Text style={s.lnkT}>{profile.link || "nationofniches.com"}</Text>
+            <Ionicons name="open-outline" size={14} color="#8a8c96" />
+          </Pressable>
+
+          <View style={s.hr} />
+
+          {posts.length === 0 ? (
+            <Text style={s.end}>No creations yet</Text>
+          ) : (
+            posts.map((p) => (
+              <View key={p.id} style={s.cardShell}>
+                <PostCard post={p} />
+              </View>
+            ))
+          )}
+          {posts.length > 0 && <Text style={s.end}>You are all caught up</Text>}
+        </View>
+      </Animated.ScrollView>
     </View>
   );
 }
 
-function FilterPill({
-  label,
-  icon,
-  active,
-  onPress,
-}: {
-  label?: string;
-  icon?: any;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.pill, active && styles.pillActive]}
-    >
-      {label ? (
-        <Text style={[styles.pillText, active && styles.pillTextActive]}>
-          {label}
-        </Text>
-      ) : (
-        <Ionicons
-          name={icon}
-          size={16}
-          color={active ? "#000" : "rgba(255,255,255,0.68)"}
-        />
-      )}
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  list: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  center: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-
-  // Banner
-  bannerWrap: {
-    height: 160,
-    position: "relative",
-    backgroundColor: Colors.surface,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    overflow: "hidden",
-  },
-  banner: {
-    width: "100%",
-    height: "100%",
-  },
-  bannerFade: {
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: BG },
+  center: { alignItems: "center", justifyContent: "center" },
+  hd: {
     position: "absolute",
+    top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    height: 60,
-    backgroundColor: "rgba(23, 23, 23, 0.4)",
+    zIndex: 40,
+    borderBottomWidth: 1,
   },
-
-  // Avatar + Stats side by side
-  avatarStatsRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
+  bar: {
+    height: 56,
     paddingHorizontal: 20,
-    marginTop: -40,
-    marginBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  avatarWrap: {
-    zIndex: 10,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: Colors.background,
-  },
-  avatarFallback: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.surfaceElevated,
-    borderWidth: 3,
-    borderColor: Colors.background,
+  ib: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(22,30,42,0.45)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: {
-    color: Colors.text,
-    fontSize: 24,
-    fontWeight: FontWeight.bold,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 20,
-    paddingBottom: 6,
-  },
-  stat: {
-    alignItems: "center",
-    minWidth: 54,
-  },
-  statValue: {
-    color: Colors.text,
-    fontSize: 17,
-    fontWeight: FontWeight.bold,
-  },
-  statLabel: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: 10,
-    marginTop: 2,
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-  },
-
-  // Info
-  infoSection: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-  },
-  nameRow: {
+  ttl: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 10,
+    maxWidth: W - 130,
   },
-  nameLeft: {
+  mini: { width: 32, height: 32, borderRadius: 16, overflow: "hidden" },
+  miniImg: { width: 32, height: 32 },
+  miniPh: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#26272e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniT: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  ttlB: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  ttlS: { color: "#8b8d99", fontSize: 13, fontFamily: "monospace" },
+  heroBlock: {
+    width: W,
+    height: HERO,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  heroImg: {
+    width: W,
+    height: HERO + 80,
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  identityOnHero: {
+    alignItems: "center",
+    paddingBottom: 28,
+    paddingHorizontal: 24,
+    zIndex: 2,
+  },
+  avWrap: {
+    marginBottom: 12,
+    borderRadius: AV / 2 + 3,
+    borderWidth: 3,
+    borderColor: BG,
+    overflow: "hidden",
+    backgroundColor: BG,
+  },
+  av: { width: AV, height: AV, borderRadius: AV / 2 },
+  avPh: {
+    backgroundColor: "#26272e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avInit: { color: "#fff", fontSize: 26, fontWeight: "700" },
+  nmRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    flex: 1,
+    justifyContent: "center",
   },
-  displayName: {
-    color: Colors.text,
-    fontSize: 20,
-    fontWeight: FontWeight.bold,
+  nm: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    lineHeight: 34,
   },
-  creatorBadge: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  creatorText: {
-    color: Colors.textMuted,
-    fontSize: 9,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0.5,
-  },
-  settingsBtn: {
-    width: 34,
-    height: 34,
+  badge: {
+    width: 20,
+    height: 20,
     borderRadius: 10,
-    backgroundColor: Colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
+    backgroundColor: "#1b3469",
+    borderWidth: 1.5,
+    borderColor: "#3b72d9",
     alignItems: "center",
     justifyContent: "center",
   },
-  username: {
-    color: "rgba(255,255,255,0.62)",
-    fontSize: FontSize.sm,
+  hn: {
     marginTop: 4,
+    color: "#8b8d99",
+    fontSize: 13,
+    fontFamily: "monospace",
+    textAlign: "center",
   },
-  bio: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: FontSize.base,
-    lineHeight: 21,
-    marginTop: 12,
-  },
-  linkRow: {
+  actions: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
+    gap: 12,
+    marginTop: 20,
+    width: "100%",
   },
-  link: {
-    color: Colors.accent,
-    fontSize: FontSize.sm,
-  },
-
-  // Action row
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 10,
-    gap: 10,
-  },
-  editBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: "transparent",
-  },
-  editBtnText: {
-    color: Colors.text,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  followBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
+  edit: {
+    flex: 1,
+    height: 48,
+    borderRadius: 999,
     backgroundColor: "#fff",
-  },
-  followBtnText: {
-    color: "#000",
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.bold,
-  },
-  followingBtn: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  followingBtnText: {
-    color: Colors.text,
-  },
-
-  // Filter pills
-  filters: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginLeft: "auto",
+    justifyContent: "center",
+    gap: 9,
   },
-  pill: {
-    height: 34,
-    minWidth: 34,
-    paddingHorizontal: 12,
-    borderRadius: 17,
-    backgroundColor: Colors.surface,
+  editGhost: {
+    backgroundColor: "#26272e",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: "#3a3b44",
+  },
+  editTxt: { color: BG, fontSize: 15, fontWeight: "600" },
+  share: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#26272e",
+    borderWidth: 1,
+    borderColor: "#3a3b44",
     alignItems: "center",
     justifyContent: "center",
   },
-  pillActive: {
-    backgroundColor: "#fff",
-    borderColor: "#fff",
+  below: { backgroundColor: BG, paddingTop: 8 },
+  stats: { flexDirection: "row", paddingHorizontal: 24, marginTop: 8 },
+  stat: { flex: 1, alignItems: "center" },
+  statN: { color: "#fff", fontSize: 22, fontWeight: "700", lineHeight: 28 },
+  statL: { color: MUT, fontSize: 13, marginTop: 6 },
+  bio: {
+    marginTop: 16,
+    paddingHorizontal: 28,
+    textAlign: "center",
+    color: "#c8c9d1",
+    fontSize: 13,
+    lineHeight: 22.5,
   },
-  pillText: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  pillTextActive: {
-    color: "#000",
-  },
-
-  empty: {
+  lnk: {
+    marginTop: 8,
+    flexDirection: "row",
     alignItems: "center",
-    paddingTop: 80,
-    gap: 10,
+    justifyContent: "center",
+    gap: 8,
   },
-  muted: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: FontSize.base,
+  lnkT: { color: "#c7c8d0", fontSize: 13 },
+  hr: {
+    height: 1,
+    backgroundColor: LINE,
+    marginHorizontal: 16,
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  cardShell: { marginBottom: 6 },
+  end: {
+    textAlign: "center",
+    color: MUT,
+    fontSize: 13,
+    marginTop: 28,
+    marginBottom: 16,
   },
 });

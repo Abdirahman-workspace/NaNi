@@ -213,7 +213,7 @@ export const db = {
       if (!supabase) return false;
 
       const { data } = await supabase
-        .from("post_likes")
+        .from("likes")
         .select("post_id")
         .eq("post_id", postId)
         .eq("user_id", userId)
@@ -229,7 +229,7 @@ export const db = {
       if (!supabase) return false;
 
       const current = await supabase
-        .from("post_likes")
+        .from("likes")
         .select("post_id")
         .eq("post_id", postId)
         .eq("user_id", userId)
@@ -237,7 +237,7 @@ export const db = {
 
       if (current.data) {
         const { error } = await supabase
-          .from("post_likes")
+          .from("likes")
           .delete()
           .eq("post_id", postId)
           .eq("user_id", userId);
@@ -247,7 +247,7 @@ export const db = {
       }
 
       const { error } = await supabase
-        .from("post_likes")
+        .from("likes")
         .insert({
           post_id: postId,
           user_id: userId,
