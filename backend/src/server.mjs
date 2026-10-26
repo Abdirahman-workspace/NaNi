@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import tls from "node:tls";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
@@ -49,31 +48,6 @@ const r2 = new S3Client({
     accessKeyId: process.env.R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
-});
-
-const r2Host = `${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-const r2TlsProbe = tls.connect({
-  host: r2Host,
-  port: 443,
-  servername: r2Host,
-  minVersion: "TLSv1.2",
-  timeout: 10000,
-}, () => {
-  console.log(
-    `[R2 TLS probe] PASS host=${r2Host} protocol=${r2TlsProbe.getProtocol()}`
-  );
-  r2TlsProbe.end();
-});
-
-r2TlsProbe.setTimeout(10000, () => {
-  console.error(`[R2 TLS probe] TIMEOUT host=${r2Host}`);
-  r2TlsProbe.destroy();
-});
-
-r2TlsProbe.on("error", (error) => {
-  console.error(
-    `[R2 TLS probe] FAIL host=${r2Host} code=${error.code} message=${error.message}`
-  );
 });
 
 app.disable("x-powered-by");
